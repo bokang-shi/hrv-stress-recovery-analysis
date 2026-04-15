@@ -7,7 +7,7 @@ The project integrates:
 * ECG preprocessing and R-peak detection
 * HRV feature extraction (time and frequency domain)
 * Statistical analysis of stress-induced changes
-* Implementation of the MIST stress induction task for experimental data collection
+* Implementation of the MIST stress induction task
 
 ## Repository Structure
 

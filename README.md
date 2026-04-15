@@ -13,10 +13,10 @@ The project integrates:
 
 ```text
 src/
-  feature_extraction/   # HRV extraction from WESAD and primary data
-  statistics/           # Wilcoxon test and bootstrap confidence intervals
-  validation/           # Signal quality and R-peak detection benchmarking
-  stress_induction_task/          # MIST stress task implementation
+  feature_extraction/       # HRV extraction from WESAD and primary data
+  statistics/               # Wilcoxon test and bootstrap confidence intervals
+  validation/               # Signal quality and R-peak detection benchmarking
+  stress_induction_task/    # MIST stress task implementation
 ```
 
 ## Dependencies

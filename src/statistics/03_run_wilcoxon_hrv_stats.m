@@ -1,6 +1,6 @@
 clear; clc;
 
-L = readtable('实验数据');
+L = readtable('data.csv');
 
 metrics = {'RMSSD', 'SDNN', 'pNN50', 'LF_HF','LF_ms2', 'HF_ms2', 'LF_nu', 'HF_nu'};
 

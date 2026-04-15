@@ -16,7 +16,7 @@ src/
   feature_extraction/   # HRV extraction from WESAD and primary data
   statistics/           # Wilcoxon test and bootstrap confidence intervals
   validation/           # Signal quality and R-peak detection benchmarking
-  acquisition/          # MIST stress task implementation
+  stress_induction_task/          # MIST stress task implementation
 ```
 
 ## Dependencies
@@ -48,7 +48,7 @@ MATLAB is required for statistical analysis scripts.
 * `wesad_rr_artefact_analysis.py`
 * `rpeak_detection_benchmark.py`
 
-### Experimental Task
+### Stress Induction Task
 
 * `mist_stress_task.py`
 

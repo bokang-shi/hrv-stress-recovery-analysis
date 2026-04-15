@@ -22,6 +22,17 @@ results/                # Outputs not included
 docs/                   # Supporting documents not included
 ```
 
+## Dependencies
+
+This project was developed in Python and MATLAB.
+Key Python libraries include:
+- numpy
+- pandas
+- neurokit2
+- scipy
+- matplotlib
+MATLAB is required for statistical analysis scripts.
+
 ## Main Components
 
 ### Feature Extraction

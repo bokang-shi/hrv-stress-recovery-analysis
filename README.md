@@ -17,9 +17,6 @@ src/
   statistics/           # Wilcoxon test and bootstrap confidence intervals
   validation/           # Signal quality and R-peak detection benchmarking
   acquisition/          # MIST stress task implementation
-
-results/                # Outputs not included
-docs/                   # Supporting documents not included
 ```
 
 ## Dependencies

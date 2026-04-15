@@ -31,6 +31,7 @@ Key Python libraries include:
 - neurokit2
 - scipy
 - matplotlib
+
 MATLAB is required for statistical analysis scripts.
 
 ## Main Components

@@ -45,7 +45,7 @@ MATLAB is required for statistical analysis scripts.
 
 ### Validation
 
-* `wesad_rr_artefact_analysis.py`
+* `wesad_rr_interval_quality_assessment.py`
 * `rpeak_detection_benchmark.py`
 
 ### Stress Induction Task

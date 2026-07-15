@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local data and generated outputs
+data/wesad/
+data/primary/
+outputs/
+*.csv
+*.xlsx
+*.mat
+*.h5
+*.pkl
+
+# Logs from the MIST task
+mist_log_*.csv
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

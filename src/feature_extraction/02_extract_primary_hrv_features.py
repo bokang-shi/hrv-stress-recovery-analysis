@@ -1,39 +1,36 @@
-
 """
-Local H5 HRV feature extraction (A4 ECG)
-5-min window, 1-min step
-Median aggregation
-Lomb-Scargle, absolute power (ms^2)
+Extract HRV features from primary BITalino/OpenSignals HDF5 recordings.
+
+Expected filenames use the pattern <subject>_<phase>.h5, for example:
+    p2_baseline.h5
+    p2_stress.h5
+    p2_recovery.h5
 """
 
-import os
+import argparse
 import re
-import h5py
-import numpy as np
-import pandas as pd
-import neurokit2 as nk
 import warnings
 from datetime import datetime
+from pathlib import Path
 
-# ---------- NumPy 2.0 patch ----------
+import h5py
+import neurokit2 as nk
+import numpy as np
+import pandas as pd
+
+
+# NumPy 2.0 compatibility for older NeuroKit2 versions.
 if not hasattr(np, "trapz"):
     np.trapz = np.trapezoid
-# -------------------------------------
 
 warnings.filterwarnings("ignore")
 
-# ========== Settings ==========
-DATA_PATH = r"C:\Users\Windows\OneDrive - Imperial College London\Desktop\HRV_local"
 DEFAULT_FS = 1000
+DEFAULT_CHANNEL = "A4"
 
 WINDOW_SEC = 300
 STEP_SEC = 60
 MIN_PEAKS = 200
-
-DATE_TAG = datetime.today().strftime("%Y%m%d")
-SAVE_FILENAME = os.path.join(
-    DATA_PATH, f"local_hrv_sliding_median_ms2_{DATE_TAG}.csv"
-)
 
 PHASE_MAP = {
     "baseline": "Base",
@@ -45,16 +42,14 @@ FEATURE_KEYS = {
     "RMSSD": "HRV_RMSSD",
     "SDNN": "HRV_SDNN",
     "pNN50": "HRV_pNN50",
-    "LF_ms2": "HRV_LF",
-    "HF_ms2": "HRV_HF",
     "LF/HF": "HRV_LFHF",
 }
 
-# ========== HRV for one window ==========
+
 def get_window_hrv(segment, fs):
+    """Compute HRV features for one ECG window."""
     seg = np.nan_to_num(np.asarray(segment, dtype=np.float64))
 
-    # Skip nearly flat signals
     if np.std(seg) < 1e-7 or np.ptp(seg) < 1e-6:
         return None
 
@@ -70,7 +65,7 @@ def get_window_hrv(segment, fs):
             info,
             sampling_rate=fs,
             psd_method="lomb",
-            normalize=False,   # absolute power in ms^2
+            normalize=False,
         )
 
         return pd.concat([hrv_t, hrv_f], axis=1).iloc[0]
@@ -84,7 +79,7 @@ def process_phase_sliding(signal, fs, phase=""):
     step = int(STEP_SEC * fs)
 
     if len(signal) < win:
-        print(f"[{phase}] shorter than 5 min -> skip")
+        print(f"[{phase}] shorter than 5 minutes; skipped")
         return None
 
     feats = []
@@ -92,80 +87,99 @@ def process_phase_sliding(signal, fs, phase=""):
     print(f"[{phase}] windows={n_win}", end=" | ")
 
     for i in range(0, len(signal) - win + 1, step):
-        h = get_window_hrv(signal[i:i+win], fs)
-        if h is not None:
-            feats.append(h)
+        hrv_features = get_window_hrv(signal[i:i + win], fs)
+        if hrv_features is not None:
+            feats.append(hrv_features)
 
     print(f"valid={len(feats)}")
 
-    if len(feats) == 0:
+    if not feats:
         return None
 
     return pd.DataFrame(feats).median()
 
 
-# ========== Parse filename ==========
 def parse_filename(fname):
-    m = re.match(r"^(?P<subj>[^_]+)_(?P<phase>[^.]+)\.h5$", fname, re.I)
-    if not m:
+    match = re.match(r"^(?P<subj>[^_]+)_(?P<phase>[^.]+)\.h5$", fname, re.I)
+    if not match:
         return None, None
-    return m.group("subj"), m.group("phase").lower()
+    return match.group("subj"), match.group("phase").lower()
 
 
-# ========== Main ==========
-results = {}
-print("=== Start HRV extraction (A4 ECG) ===")
+def add_phase_features(results, subject, prefix, feat):
+    for key in ("RMSSD", "SDNN", "pNN50", "LF/HF"):
+        results[subject][f"{prefix}_{key}"] = feat.get(FEATURE_KEYS[key], np.nan)
 
-for fname in os.listdir(DATA_PATH):
-    if not fname.lower().endswith(".h5"):
-        continue
-
-    subj, phase = parse_filename(fname)
-    if subj is None or phase not in PHASE_MAP:
-        continue
-
-    print(f"\nProcessing {fname}")
-    with h5py.File(os.path.join(DATA_PATH, fname), "r") as f:
-        if "A4" not in f:
-            print("  A4 not found -> skip")
-            continue
-
-        ecg = np.asarray(f["A4"]).squeeze().astype(float)
-        fs = DEFAULT_FS
-
-    feat = process_phase_sliding(ecg, fs, PHASE_MAP[phase])
-    if feat is None:
-        continue
-
-    if subj not in results:
-        results[subj] = {"Subject": subj}
-
-    prefix = PHASE_MAP[phase]
-
-    # Basic features
-    for k in ["RMSSD", "SDNN", "pNN50", "LF/HF"]:
-        results[subj][f"{prefix}_{k}"] = feat.get(FEATURE_KEYS[k], np.nan)
-
-    # Absolute power
     lf = feat.get("HRV_LF", np.nan)
     hf = feat.get("HRV_HF", np.nan)
 
-    results[subj][f"{prefix}_LF_ms2"] = lf
-    results[subj][f"{prefix}_HF_ms2"] = hf
+    results[subject][f"{prefix}_LF_ms2"] = lf
+    results[subject][f"{prefix}_HF_ms2"] = hf
 
-    # Compute normalized units manually
     if not np.isnan(lf) and not np.isnan(hf) and (lf + hf) > 0:
-        results[subj][f"{prefix}_LF_nu"] = lf / (lf + hf)
-        results[subj][f"{prefix}_HF_nu"] = hf / (lf + hf)
+        results[subject][f"{prefix}_LF_nu"] = lf / (lf + hf)
+        results[subject][f"{prefix}_HF_nu"] = hf / (lf + hf)
     else:
-        results[subj][f"{prefix}_LF_nu"] = np.nan
-        results[subj][f"{prefix}_HF_nu"] = np.nan
+        results[subject][f"{prefix}_LF_nu"] = np.nan
+        results[subject][f"{prefix}_HF_nu"] = np.nan
 
 
-# ========== Save ==========
-if results:
+def extract_primary_hrv(data_dir, output_file, sampling_rate, channel):
+    results = {}
+    print("=== Primary ECG HRV extraction ===")
+
+    for h5_path in sorted(data_dir.glob("*.h5")):
+        subj, phase = parse_filename(h5_path.name)
+        if subj is None or phase not in PHASE_MAP:
+            print(f"[WARN] Unexpected filename, skipped: {h5_path.name}")
+            continue
+
+        print(f"\nProcessing {h5_path.name}")
+        with h5py.File(h5_path, "r") as f:
+            if channel not in f:
+                print(f"  Channel {channel} not found; skipped")
+                continue
+
+            ecg = np.asarray(f[channel]).squeeze().astype(float)
+
+        feat = process_phase_sliding(ecg, sampling_rate, PHASE_MAP[phase])
+        if feat is None:
+            continue
+
+        if subj not in results:
+            results[subj] = {"Subject": subj}
+
+        add_phase_features(results, subj, PHASE_MAP[phase], feat)
+
+    if not results:
+        print("\nNo valid data extracted")
+        return
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(results.values())
-    df.to_csv(SAVE_FILENAME, index=False)
-    print(f"\nDone. Saved to:\n{SAVE_FILENAME}")
-else:
-    print("\nNo valid data extracted")
+    df.to_csv(output_file, index=False)
+    print(f"\nDone. Saved to: {output_file}")
+
+
+def parse_args():
+    date_tag = datetime.today().strftime("%Y%m%d")
+    parser = argparse.ArgumentParser(description="Extract HRV features from primary HDF5 ECG files.")
+    parser.add_argument("--data-dir", type=Path, default=Path("data/primary"),
+                        help="Folder containing <subject>_<phase>.h5 files.")
+    parser.add_argument("--out", type=Path,
+                        default=Path(f"outputs/local_hrv_sliding_median_ms2_{date_tag}.csv"),
+                        help="Output CSV path.")
+    parser.add_argument("--sampling-rate", type=int, default=DEFAULT_FS,
+                        help="ECG sampling rate in Hz.")
+    parser.add_argument("--channel", default=DEFAULT_CHANNEL,
+                        help="HDF5 channel containing ECG data.")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    extract_primary_hrv(args.data_dir, args.out, args.sampling_rate, args.channel)
+
+
+if __name__ == "__main__":
+    main()

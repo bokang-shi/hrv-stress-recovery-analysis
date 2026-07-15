@@ -1,41 +1,61 @@
 clear; clc;
 
-L = readtable('data.csv');
+% Paired Wilcoxon signed-rank tests for baseline vs stress HRV features.
+%
+% Expected input columns after MATLAB variable-name cleaning:
+%   Subject, Base_RMSSD, Stress_RMSSD, Base_SDNN, Stress_SDNN, ...
 
-metrics = {'RMSSD', 'SDNN', 'pNN50', 'LF_HF','LF_ms2', 'HF_ms2', 'LF_nu', 'HF_nu'};
+inputFile = fullfile('outputs', 'wesad_hrv_sliding_median_ms2.csv');
+outputDir = fullfile('outputs', 'statistics');
+outputFile = fullfile(outputDir, 'wesad_hrv_wilcoxon_results.xlsx');
 
+if ~exist(outputDir, 'dir')
+    mkdir(outputDir);
+end
+
+L = readtable(inputFile);
+
+metrics = {'RMSSD', 'SDNN', 'pNN50', 'LF_HF', 'LF_ms2', 'HF_ms2', 'LF_nu', 'HF_nu'};
 nMetrics = numel(metrics);
 
-raw_p  = zeros(nMetrics,1);
-effect = zeros(nMetrics,1);
-%% 2. Wilcoxon signed-rank test (paired)
-for k = 1:nMetrics
+raw_p  = nan(nMetrics, 1);
+effect = nan(nMetrics, 1);
+nPairs = zeros(nMetrics, 1);
 
-    base_col   = ['Base_'   metrics{k}];
+for k = 1:nMetrics
+    base_col   = ['Base_' metrics{k}];
     stress_col = ['Stress_' metrics{k}];
+
+    if ~ismember(base_col, L.Properties.VariableNames) || ~ismember(stress_col, L.Properties.VariableNames)
+        warning('Skipping %s because one or more columns were not found.', metrics{k});
+        continue;
+    end
 
     baseline = L.(base_col);
     stress   = L.(stress_col);
 
-    % Remove NaNs
     valid = ~isnan(baseline) & ~isnan(stress);
     baseline = baseline(valid);
     stress   = stress(valid);
+    nPairs(k) = numel(stress);
 
-    % Paired difference
+    if nPairs(k) == 0
+        warning('Skipping %s because no paired observations were available.', metrics{k});
+        continue;
+    end
+
     delta = stress - baseline;
-
-    % Effect size (median difference, recommended for Wilcoxon)
     effect(k) = median(delta);
-
-    % Wilcoxon signed-rank test
-    raw_p(k) = signrank(stress, baseline);  
+    raw_p(k) = signrank(stress, baseline);
 end
-%% 3. BH (FDR) correction
+
 qvals = mafdr(raw_p, 'BHFDR', true);
 
-Result_Wilcoxon = table( metrics', effect, raw_p, qvals, qvals < 0.05, 'VariableNames', {'Metric', 'Median_Difference','Raw_p', 'BH_q', 'Significant'} );
+Result_Wilcoxon = table( ...
+    metrics', nPairs, effect, raw_p, qvals, qvals < 0.05, ...
+    'VariableNames', {'Metric', 'N_Pairs', 'Median_Difference', 'Raw_p', 'BH_q', 'Significant'} ...
+);
 
-disp(Result_Wilcoxon)
-
-writetable(Result_Wilcoxon, 'wesad_hrv_wilcoxon_results.xlsx');
+disp(Result_Wilcoxon);
+writetable(Result_Wilcoxon, outputFile);
+fprintf('\nSaved results to %s\n', outputFile);

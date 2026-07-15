@@ -34,14 +34,15 @@ DECEPTIVE_MAX = 0.60
 # Performance bar behaviour
 FIRST_PERF_PCT = 0.53          # first shown red bar after first submitted answer in stress (53%)
 
-# ↓↓↓ reduced jump sizes (smoother / less obvious)
+# Reduced jump sizes make the displayed bar smoother / less obvious.
 PERF_STEP_RIGHT = 0.007        # +0.5% on correct
 PERF_STEP_WRONG = 0.015       # -0.7% on incorrect/timeout
-PERF_JITTER = 0.0025           # small noise to avoid robotic moves (±0.15%)
+PERF_JITTER = 0.0025           # small noise to avoid robotic moves (+/-0.15%)
 
 ITI_SEC = 0.6
 ALLOW_MULTIPLICATION = False
 WINDOW_GEOMETRY = "920x720"
+LOG_DIR = os.path.join("outputs", "mist_logs")
 
 
 # =========================
@@ -194,7 +195,7 @@ class MISTApp(tk.Tk):
 
         subtitle = ttk.Label(
             top,
-            text="Practice (30s) → Arithmetic (10min). Practice is only for familiarisation.",
+            text="Practice (30s) -> Arithmetic (10min). Practice is only for familiarisation.",
             font=("Segoe UI", 10),
         )
         subtitle.grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 0))
@@ -649,7 +650,8 @@ class MISTApp(tk.Tk):
     def _save_logs(self) -> str:
         dt = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"mist_log_{dt}.csv"
-        out_path = os.path.abspath(filename)
+        os.makedirs(LOG_DIR, exist_ok=True)
+        out_path = os.path.abspath(os.path.join(LOG_DIR, filename))
 
         keys = set()
         for r in self.log_rows:

@@ -1,15 +1,21 @@
-import os
+"""
+Summarise RR interval artefacts in WESAD ECG recordings.
+
+The artefact rules follow common HRV preprocessing guidance: remove implausible
+heart rates and sudden RR interval jumps.
+"""
+
+import argparse
 import pickle
 import warnings
+from pathlib import Path
 
+import neurokit2 as nk
 import numpy as np
 import pandas as pd
-import neurokit2 as nk
 
 
-# Settings
-DATA_PATH = r"C:\Users\Windows\OneDrive - Imperial College London\Desktop\HRV_local"
-SUBJECTS = ['S2', 'S3', 'S4', 'S11', 'S13', 'S14', 'S16', 'S17']
+DEFAULT_SUBJECTS = ("S2", "S3", "S4", "S11", "S13", "S14", "S16", "S17")
 FS = 700
 
 ECG_CLEAN_METHOD = "neurokit"
@@ -28,10 +34,9 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
-def load_wesad_pickle(pkl_path: str):
-    with open(pkl_path, "rb") as f:
-        data = pickle.load(f, encoding="latin1")
-    return data
+def load_wesad_pickle(pkl_path):
+    with pkl_path.open("rb") as f:
+        return pickle.load(f, encoding="latin1")
 
 
 def get_ecg_and_labels(data):
@@ -49,7 +54,7 @@ def get_ecg_and_labels(data):
     return ecg, labels
 
 
-def split_into_continuous_label_segments(labels: np.ndarray):
+def split_into_continuous_label_segments(labels):
     """Split labels into continuous segments."""
     segments = []
     n = len(labels)
@@ -67,10 +72,7 @@ def split_into_continuous_label_segments(labels: np.ndarray):
     return segments
 
 
-def artefact_mask_from_rr(rr_s: np.ndarray,
-                          hr_min=HR_MIN_BPM,
-                          hr_max=HR_MAX_BPM,
-                          rr_change_frac=RR_CHANGE_FRAC):
+def artefact_mask_from_rr(rr_s, hr_min=HR_MIN_BPM, hr_max=HR_MAX_BPM, rr_change_frac=RR_CHANGE_FRAC):
     """Flag artefactual RR intervals."""
     rr_s = np.asarray(rr_s, dtype=float)
     bad = np.zeros(len(rr_s), dtype=bool)
@@ -90,7 +92,7 @@ def artefact_mask_from_rr(rr_s: np.ndarray,
     return bad
 
 
-def process_ecg_segment(ecg_seg: np.ndarray, fs: int):
+def process_ecg_segment(ecg_seg, fs):
     """Clean ECG, detect R-peaks, and compute RR artefacts."""
     ecg_clean = nk.ecg_clean(ecg_seg, sampling_rate=fs, method=ECG_CLEAN_METHOD)
     _, rpeaks = nk.ecg_peaks(ecg_clean, sampling_rate=fs, method=RPEAK_METHOD)
@@ -104,15 +106,28 @@ def process_ecg_segment(ecg_seg: np.ndarray, fs: int):
     return rr_s, bad
 
 
-def main():
-    if not os.path.isdir(DATA_PATH):
-        raise FileNotFoundError(f"DATA_PATH not found: {DATA_PATH}")
+def summarize_group(g):
+    total_rr = g["n_rr"].sum()
+    total_bad = g["n_bad"].sum()
+    pct_weighted = (total_bad / total_rr * 100.0) if total_rr > 0 else np.nan
+    return pd.Series({
+        "segments": int(len(g)),
+        "duration_s_total": float(g["duration_s"].sum()),
+        "total_rr": int(total_rr),
+        "total_bad": int(total_bad),
+        "pct_bad_weighted": float(pct_weighted) if np.isfinite(pct_weighted) else np.nan,
+    })
+
+
+def analyse_wesad_rr_artefacts(data_dir, output_dir, subjects):
+    if not data_dir.is_dir():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
     rows = []
 
-    for subject in SUBJECTS:
-        pkl_path = os.path.join(DATA_PATH, f"{subject}.pkl")
-        if not os.path.isfile(pkl_path):
+    for subject in subjects:
+        pkl_path = data_dir / f"{subject}.pkl"
+        if not pkl_path.is_file():
             print(f"[WARN] File not found: {pkl_path}")
             continue
 
@@ -143,41 +158,30 @@ def main():
                 "duration_s": float(duration_s),
                 "n_rr": n_rr,
                 "n_bad": n_bad,
-                "pct_bad": float(pct_bad) if np.isfinite(pct_bad) else np.nan
+                "pct_bad": float(pct_bad) if np.isfinite(pct_bad) else np.nan,
             })
             seg_id += 1
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)
 
-    out1 = os.path.join(DATA_PATH, OUT_BY_SEGMENT)
-    df.to_csv(out1, index=False)
-    print(f"[SAVED] {out1}")
+    out_by_segment = output_dir / OUT_BY_SEGMENT
+    df.to_csv(out_by_segment, index=False)
+    print(f"[SAVED] {out_by_segment}")
 
     if len(df) == 0:
         print("[INFO] No valid segments found.")
         return
 
-    def summarize_group(g: pd.DataFrame) -> pd.Series:
-        total_rr = g["n_rr"].sum()
-        total_bad = g["n_bad"].sum()
-        pct_weighted = (total_bad / total_rr * 100.0) if total_rr > 0 else np.nan
-        return pd.Series({
-            "segments": int(len(g)),
-            "duration_s_total": float(g["duration_s"].sum()),
-            "total_rr": int(total_rr),
-            "total_bad": int(total_bad),
-            "pct_bad_weighted": float(pct_weighted) if np.isfinite(pct_weighted) else np.nan
-        })
-
     summary = (
         df.groupby(["subject", "label"], as_index=False)
-          .apply(summarize_group)
-          .reset_index(drop=True)
+        .apply(summarize_group)
+        .reset_index(drop=True)
     )
 
-    out2 = os.path.join(DATA_PATH, OUT_SUMMARY)
-    summary.to_csv(out2, index=False)
-    print(f"[SAVED] {out2}")
+    out_summary = output_dir / OUT_SUMMARY
+    summary.to_csv(out_summary, index=False)
+    print(f"[SAVED] {out_summary}")
 
     overall_rr = df["n_rr"].sum()
     overall_bad = df["n_bad"].sum()
@@ -186,17 +190,34 @@ def main():
 
     subj_sum = (
         df.groupby("subject", as_index=False)
-          .apply(lambda g: pd.Series({
-              "total_rr": int(g["n_rr"].sum()),
-              "total_bad": int(g["n_bad"].sum()),
-              "pct_bad_weighted": (g["n_bad"].sum() / g["n_rr"].sum() * 100.0)
-                                  if g["n_rr"].sum() > 0 else np.nan
-          }))
-          .reset_index(drop=True)
+        .apply(lambda g: pd.Series({
+            "total_rr": int(g["n_rr"].sum()),
+            "total_bad": int(g["n_bad"].sum()),
+            "pct_bad_weighted": (g["n_bad"].sum() / g["n_rr"].sum() * 100.0)
+            if g["n_rr"].sum() > 0 else np.nan,
+        }))
+        .reset_index(drop=True)
     )
 
     print("\n[INFO] Per-subject overall artefact %:")
     print(subj_sum.to_string(index=False))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Summarise WESAD RR interval artefacts.")
+    parser.add_argument("--data-dir", type=Path, default=Path("data/wesad"),
+                        help="Folder containing WESAD subject .pkl files.")
+    parser.add_argument("--out-dir", type=Path, default=Path("outputs/validation"),
+                        help="Folder for output CSV files.")
+    parser.add_argument("--subjects", default=",".join(DEFAULT_SUBJECTS),
+                        help="Comma-separated WESAD subject IDs to process.")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    subjects = [s.strip() for s in args.subjects.split(",") if s.strip()]
+    analyse_wesad_rr_artefacts(args.data_dir, args.out_dir, subjects)
 
 
 if __name__ == "__main__":
